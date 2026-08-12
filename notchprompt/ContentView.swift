@@ -15,10 +15,13 @@ struct ContentView: View {
     private let rowLabelWidth: CGFloat = 164
     private let valueWidth: CGFloat = 56
 
+    @State private var fileErrorMessage: String?
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 headerSection
+                scriptSection
                 playbackSection
                 appearanceSection
                 displaySection
@@ -41,6 +44,82 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
         }
         .padding(.bottom, 2)
+    }
+
+    private var scriptSection: some View {
+        SettingsSection(title: "Script") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Type or paste your script here. It saves as you type — there is no length limit.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                TextEditor(text: Binding(
+                    get: { model.script },
+                    set: { model.updateScript($0) }
+                ))
+                .font(.system(size: 13, design: .monospaced))
+                .frame(minHeight: 260)
+                .scrollContentBackground(.hidden)
+                .padding(6)
+                .background(Color(nsColor: .textBackgroundColor))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                HStack(spacing: 8) {
+                    Button("Import…") {
+                        Task { await importScriptAsync() }
+                    }
+                    Button("Export…") {
+                        Task { await exportScriptAsync() }
+                    }
+                    Button("Clear") {
+                        model.updateScript("")
+                    }
+                    .disabled(model.script.isEmpty)
+
+                    Spacer()
+
+                    Text("\(scriptWordCount) words · \(model.formattedEstimatedReadDuration())")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .alert("File Operation Failed", isPresented: Binding(
+            get: { fileErrorMessage != nil },
+            set: { _ in fileErrorMessage = nil }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(fileErrorMessage ?? "This file operation could not be completed.")
+        }
+    }
+
+    private var scriptWordCount: Int {
+        model.script.split(whereSeparator: { $0.isWhitespace }).count
+    }
+
+    @MainActor
+    private func importScriptAsync() async {
+        guard let url = await FilePanelCoordinator.presentImportPanel(from: NSApp.keyWindow) else { return }
+        do {
+            model.updateScript(try await ScriptFileIO.importText(from: url))
+        } catch {
+            fileErrorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func exportScriptAsync() async {
+        guard let url = await FilePanelCoordinator.presentExportPanel(from: NSApp.keyWindow) else { return }
+        do {
+            try await ScriptFileIO.exportText(model.script, to: url)
+        } catch {
+            fileErrorMessage = error.localizedDescription
+        }
     }
 
     private var playbackSection: some View {

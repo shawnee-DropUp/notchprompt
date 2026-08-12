@@ -41,18 +41,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 #if DEBUG
         ScreenSelectionSelfTests.run()
         TranscriptAlignerSelfTests.run()
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            let script = "welcome everybody to the quarterly product review today we are going to walk through three things first the growth numbers second the roadmap for next quarter and third the hiring plan let us start with growth we closed the quarter at four million in recurring revenue which is up thirty percent"
-            self.model.pasteScript(script)
-            try? await Task.sleep(nanoseconds: 800_000_000)
-            self.model.debugEnableVoiceFollowNoMic()
-            let words = script.split(separator: " ").map(String.init)
-            for end in stride(from: 4, to: min(words.count, 28), by: 4) {
-                try? await Task.sleep(nanoseconds: 300_000_000)
-                self.model.debugFeedTranscript(Array(words[max(0,end-4)...end]))
-            }
-        }
         runShortcutSelfChecks()
 #endif
 
@@ -340,21 +328,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc private func openMainWindow() {
-        Task { @MainActor in
-            if settingsWindowController == nil {
-                settingsWindowController = SettingsWindowController()
-            }
-            settingsWindowController?.show()
-        }
     }
     
     @objc private func openScriptEditorWindow() {
-        Task { @MainActor in
-            if scriptEditorWindowController == nil {
-                scriptEditorWindowController = ScriptEditorWindowController()
-            }
-            scriptEditorWindowController?.show()
-        }
     }
 
     @objc private func quitApp() {

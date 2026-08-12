@@ -143,9 +143,17 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
 
     func pasteScript(_ text: String) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        let wasEmpty = script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         script = text
-        if wasEmpty {
+        // Always reveal the new script. Previously this only fired when the old
+        // script was empty, so pasting over existing text left the overlay stuck
+        // on "Ready to prompt" and the paste looked like it had failed.
+        hasStartedSession = true
+    }
+
+    /// Live edits from the Settings script box.
+    func updateScript(_ text: String) {
+        script = text
+        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             hasStartedSession = true
         }
     }
@@ -398,36 +406,6 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
         voiceTargetRelativeY = scriptIndex.entries[match.wordIndex].relativeY
         voiceHighlightRange = scriptIndex.entries[match.wordIndex].range
     }
-
-    #if DEBUG
-    /// TEMP DIAGNOSTIC: enable voice-follow state without touching the mic.
-    func debugEnableVoiceFollowNoMic() {
-        voiceFollowEnabled = true
-        manualScrollEnabled = false
-        didReachEndInStopMode = false
-        hasStartedSession = true
-        isRunning = true
-        currentWordIndex = 0
-        rebuildScriptIndexIfNeeded()
-        NSLog("[NPDIAG] enabled: layoutW=%.0f fontSize=%.0f indexEntries=%d scriptTokens=%d",
-              layoutWidth, fontSize, scriptIndex.count, scriptTokens.count)
-        if scriptTokens.count > 3 {
-            NSLog("[NPDIAG]   first tokens: %@", scriptTokens.prefix(6).joined(separator: ","))
-            NSLog("[NPDIAG]   relY[0]=%.4f relY[last]=%.4f",
-                  scriptIndex.entries.first?.relativeY ?? -1,
-                  scriptIndex.entries.last?.relativeY ?? -1)
-        }
-    }
-
-    /// TEMP DIAGNOSTIC: drive alignment without a microphone.
-    func debugFeedTranscript(_ tokens: [String]) {
-        NSLog("[NPDIAG] feed=%@ idx=%d scriptTokens=%d layoutW=%.0f",
-              tokens.joined(separator: " "), currentWordIndex, scriptTokens.count, layoutWidth)
-        handleTranscript(tokens)
-        NSLog("[NPDIAG]   -> idx=%d tracking=%@ relY=%@",
-              currentWordIndex, String(describing: voiceIsTracking), String(describing: voiceTargetRelativeY))
-    }
-    #endif
 
     private func expireTrackingIfStale() {
         guard let last = lastConfidentMatch else { return }

@@ -366,19 +366,13 @@ struct ScrollingTextView: View {
     /// Returns 0 while no confident match exists, which parks the script instead
     /// of drifting — pausing to think should not run the prompter away from you.
     private func voiceVelocity(multiplier: Double) -> CGFloat {
-        guard hasMeasuredContentHeight, let relativeY = voiceTargetRelativeY else {
-            NSLog("[NPDIAG-VIEW] bailed: measured=%@ target=%@",
-                  String(describing: hasMeasuredContentHeight), String(describing: voiceTargetRelativeY))
-            return 0
-        }
+        guard hasMeasuredContentHeight, let relativeY = voiceTargetRelativeY else { return 0 }
 
         // Resolve the target inside whichever loop iteration the reader is in.
         let cycleBase = phase - phase.truncatingRemainder(dividingBy: cycleLength)
         let targetPhase = cycleBase + (relativeY * contentHeight) - startAnchorOffset
 
         let error = targetPhase - phase
-        NSLog("[NPDIAG-VIEW] relY=%.3f contentH=%.1f cycle=%.1f phase=%.1f target=%.1f err=%.1f measured=%@",
-              relativeY, contentHeight, cycleLength, phase, targetPhase, error, String(describing: hasMeasuredContentHeight))
         guard abs(error) > voiceDeadband else { return 0 }
 
         let corrected = min(max(error * voiceGain, -voiceMaxSpeed), voiceMaxSpeed)
