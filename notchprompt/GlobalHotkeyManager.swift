@@ -92,12 +92,39 @@ enum ShortcutCommand: CaseIterable {
     }
 }
 
+/// Bare arrow keys, registered separately from the modifier shortcuts because
+/// they claim the arrow keys from every other app and must be revocable at
+/// runtime without disturbing the rest of the hotkeys.
+enum TransportKey: CaseIterable {
+    case speedUp
+    case speedDown
+    case reset
+
+    fileprivate var hotKeyID: UInt32 {
+        switch self {
+        case .speedUp: return 101
+        case .speedDown: return 102
+        case .reset: return 103
+        }
+    }
+
+    fileprivate var keyCode: UInt32 {
+        switch self {
+        case .speedUp: return UInt32(kVK_UpArrow)
+        case .speedDown: return UInt32(kVK_DownArrow)
+        case .reset: return UInt32(kVK_LeftArrow)
+        }
+    }
+}
+
 final class GlobalHotkeyManager {
     private static let signature: OSType = 0x4E_50_48_4B // "NPHK"
 
     private var hotKeyRefs: [ShortcutCommand: EventHotKeyRef] = [:]
+    private var transportRefs: [TransportKey: EventHotKeyRef] = [:]
     private var eventHandlerRef: EventHandlerRef?
     private let onCommand: (ShortcutCommand) -> Void
+    var onTransportKey: ((TransportKey) -> Void)?
 
     private(set) var failedRegistrations: [ShortcutCommand] = []
 
@@ -136,11 +163,40 @@ final class GlobalHotkeyManager {
         failedRegistrations = failed
     }
 
+    /// Claims or releases the bare arrow keys system-wide.
+    func setTransportKeysEnabled(_ enabled: Bool) {
+        guard enabled else {
+            for (_, ref) in transportRefs { UnregisterEventHotKey(ref) }
+            transportRefs.removeAll()
+            return
+        }
+        guard transportRefs.isEmpty else { return }
+
+        installHandlerIfNeeded()
+        defer { NSLog("[NPKEYS] arrow keys claimed: %d/%d", transportRefs.count, TransportKey.allCases.count) }
+        for key in TransportKey.allCases {
+            var ref: EventHotKeyRef?
+            let id = EventHotKeyID(signature: Self.signature, id: key.hotKeyID)
+            // No modifier mask: these are the raw arrow keys.
+            let status = RegisterEventHotKey(key.keyCode, 0, id, GetEventDispatcherTarget(), 0, &ref)
+            if status == noErr, let ref {
+                transportRefs[key] = ref
+            } else {
+                NSLog("[NPKEYS] failed to claim %@ (status %d)", String(describing: key), status)
+            }
+        }
+    }
+
     func unregisterAll() {
         for (_, hotKeyRef) in hotKeyRefs {
             UnregisterEventHotKey(hotKeyRef)
         }
         hotKeyRefs.removeAll()
+
+        for (_, ref) in transportRefs {
+            UnregisterEventHotKey(ref)
+        }
+        transportRefs.removeAll()
 
         if let eventHandlerRef {
             RemoveEventHandler(eventHandlerRef)
@@ -197,6 +253,14 @@ final class GlobalHotkeyManager {
         )
         guard status == noErr else { return status }
         guard hotKeyID.signature == Self.signature else { return OSStatus(eventNotHandledErr) }
+
+        if let transport = TransportKey.allCases.first(where: { $0.hotKeyID == hotKeyID.id }) {
+            DispatchQueue.main.async { [onTransportKey] in
+                onTransportKey?(transport)
+            }
+            return noErr
+        }
+
         guard let command = ShortcutCommand.allCases.first(where: { $0.hotKeyID == hotKeyID.id }) else {
             return OSStatus(eventNotHandledErr)
         }

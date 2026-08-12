@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import AppKit
 
 struct ScrollingTextView: View {
     let text: String
@@ -25,6 +26,7 @@ struct ScrollingTextView: View {
     let savedScrollPhaseForResume: CGFloat?
     let voiceFollowEnabled: Bool
     let voiceTargetRelativeY: CGFloat?
+    let voiceHighlightRange: NSRange?
     let onSaveScrollPhaseForResume: ((CGFloat) -> Void)?
     let onReachedEnd: (() -> Void)?
     let onReportLayoutWidth: ((CGFloat) -> Void)?
@@ -42,6 +44,9 @@ struct ScrollingTextView: View {
     @State private var hasReachedEndInStopMode: Bool = false
     @State private var hasMeasuredContentHeight: Bool = false
     @State private var deferredStopTargetPhase: CGFloat? = nil
+    /// Cached so the highlight is rebuilt only when the spoken word changes,
+    /// never on the 60fps scroll tick.
+    @State private var attributedScript = AttributedString()
 
     // Smooth deceleration/acceleration rate (0-1, higher = faster)
     private let speedLerpFactor: Double = 8.0
@@ -164,7 +169,11 @@ struct ScrollingTextView: View {
                 .onAppear {
                     viewportHeight = max(viewportProxy.size.height, 0)
                     onReportLayoutWidth?(viewportProxy.size.width)
+                    rebuildAttributedScript()
                     restoreOrResetPhase()
+                }
+                .onChange(of: voiceHighlightRange) { _, _ in
+                    rebuildAttributedScript()
                 }
                 .onChange(of: viewportProxy.size.height) { _, newHeight in
                     viewportHeight = max(newHeight, 0)
@@ -178,6 +187,7 @@ struct ScrollingTextView: View {
                     resetPhase()
                 }
                 .onChange(of: text) { _, _ in
+                    rebuildAttributedScript()
                     hasMeasuredContentHeight = false
                     deferredStopTargetPhase = nil
                     resetPhase()
@@ -235,7 +245,7 @@ struct ScrollingTextView: View {
     }
 
     private var scrollingContent: some View {
-        Text(text)
+        Text(attributedScript)
             .font(.system(size: fontSize, weight: .regular, design: .monospaced))
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -336,18 +346,39 @@ struct ScrollingTextView: View {
         phase = max(phase, topOfScriptPhaseFloor)
     }
 
+    /// Highlights the word currently being spoken. Colour-only, so it can never
+    /// change layout and desynchronise the position index.
+    private func rebuildAttributedScript() {
+        var attributed = AttributedString(text)
+        attributed.foregroundColor = .white
+
+        if let voiceHighlightRange,
+           let stringRange = Range(voiceHighlightRange, in: text),
+           let attributedRange = Range(stringRange, in: attributed) {
+            attributed[attributedRange].foregroundColor = .black
+            attributed[attributedRange].backgroundColor = .yellow
+        }
+        attributedScript = attributed
+    }
+
     /// Proportional control toward the word the speaker is currently reading.
     ///
     /// Returns 0 while no confident match exists, which parks the script instead
     /// of drifting — pausing to think should not run the prompter away from you.
     private func voiceVelocity(multiplier: Double) -> CGFloat {
-        guard hasMeasuredContentHeight, let relativeY = voiceTargetRelativeY else { return 0 }
+        guard hasMeasuredContentHeight, let relativeY = voiceTargetRelativeY else {
+            NSLog("[NPDIAG-VIEW] bailed: measured=%@ target=%@",
+                  String(describing: hasMeasuredContentHeight), String(describing: voiceTargetRelativeY))
+            return 0
+        }
 
         // Resolve the target inside whichever loop iteration the reader is in.
         let cycleBase = phase - phase.truncatingRemainder(dividingBy: cycleLength)
         let targetPhase = cycleBase + (relativeY * contentHeight) - startAnchorOffset
 
         let error = targetPhase - phase
+        NSLog("[NPDIAG-VIEW] relY=%.3f contentH=%.1f cycle=%.1f phase=%.1f target=%.1f err=%.1f measured=%@",
+              relativeY, contentHeight, cycleLength, phase, targetPhase, error, String(describing: hasMeasuredContentHeight))
         guard abs(error) > voiceDeadband else { return 0 }
 
         let corrected = min(max(error * voiceGain, -voiceMaxSpeed), voiceMaxSpeed)

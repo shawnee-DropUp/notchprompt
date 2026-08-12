@@ -21,6 +21,8 @@ struct ScriptIndex {
         let token: String
         /// Vertical position of this word's line, as a fraction of total height.
         let relativeY: CGFloat
+        /// Character range in the source script, for live highlighting.
+        let range: NSRange
     }
 
     let entries: [Entry]
@@ -97,7 +99,7 @@ struct ScriptIndex {
                 lineTop = fragment.minY
             }
 
-            entries.append(Entry(token: token, relativeY: lineTop / totalHeight))
+            entries.append(Entry(token: token, relativeY: lineTop / totalHeight, range: nsRange))
         }
 
         return ScriptIndex(entries: entries,

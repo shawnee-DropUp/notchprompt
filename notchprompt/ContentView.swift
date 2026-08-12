@@ -156,6 +156,21 @@ struct ContentView: View {
     private var shortcutsSection: some View {
         SettingsSection(title: "Keyboard Shortcuts") {
             VStack(alignment: .leading, spacing: 6) {
+                Toggle("Use arrow keys for speed and reset", isOn: $model.captureArrowKeys)
+                Text("While on, Notchprompt claims the plain arrow keys system-wide — "
+                     + "they will not work in other apps until you turn this off or quit.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if model.captureArrowKeys {
+                    shortcutRow("Up arrow", "Increase speed")
+                    shortcutRow("Down arrow", "Decrease speed")
+                    shortcutRow("Left arrow", "Reset scroll")
+                }
+
+                Divider().padding(.vertical, 4)
+
                 shortcutRow("Option+Command+P", "Start / Pause")
                 shortcutRow("Option+Command+R", "Reset scroll")
                 shortcutRow("Option+Command+J", "Jump back 5 seconds")

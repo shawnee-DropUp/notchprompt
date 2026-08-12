@@ -73,8 +73,13 @@ final class SpeechFollower: ObservableObject {
         self.recognizer = recognizer
 
         do {
+            NSLog("[NPSPEECH] onDevice=%@ available=%@ locale=%@",
+                  String(describing: recognizer.supportsOnDeviceRecognition),
+                  String(describing: recognizer.isAvailable),
+                  recognizer.locale.identifier)
             try beginSession()
             status = .listening
+            NSLog("[NPSPEECH] listening")
             scheduleRecycle()
         } catch {
             teardownAudio()
@@ -112,8 +117,10 @@ final class SpeechFollower: ObservableObject {
             request?.append(buffer)
         }
 
+        NSLog("[NPSPEECH] input format: %.0fHz ch=%d", format.sampleRate, format.channelCount)
         engine.prepare()
         try engine.start()
+        NSLog("[NPSPEECH] engine started running=%@", String(describing: engine.isRunning))
 
         task = recognizer?.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
@@ -124,7 +131,12 @@ final class SpeechFollower: ObservableObject {
     }
 
     private func handle(result: SFSpeechRecognitionResult?, error: Error?) {
+        if let error {
+            NSLog("[NPSPEECH] task error: %@", String(describing: error))
+        }
         if let result {
+            NSLog("[NPSPEECH] heard: '%@' final=%@",
+                  result.bestTranscription.formattedString, String(describing: result.isFinal))
             transcriptTokens = Self.tailTokens(from: result.bestTranscription.formattedString)
         }
 
@@ -149,6 +161,7 @@ final class SpeechFollower: ObservableObject {
         do {
             try beginSession()
             status = .listening
+            NSLog("[NPSPEECH] restarted, listening")
             scheduleRecycle()
         } catch {
             status = .unavailable("Microphone stopped: \(error.localizedDescription)")

@@ -59,9 +59,12 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
     @Published var overlayHeight: Double = 150
     // Deprecated user setting: keep as a fixed constant unless changed explicitly in code.
     @Published var backgroundOpacity: Double = 1.0
-    @Published var scrollMode: ScrollMode = .infinite
+    @Published var scrollMode: ScrollMode = .stopAtEnd
     /// 0 means "auto" (prefer built-in display)
     @Published var selectedScreenID: CGDirectDisplayID = 0
+    /// Bare arrow keys drive speed and reset globally. This takes the arrow keys
+    /// away from every other app while Notchprompt runs, so it must be escapable.
+    @Published var captureArrowKeys: Bool = true
     // Fraction of the viewport height to fade at top and bottom.
     let edgeFadeFraction: Double = 0.20
 
@@ -74,6 +77,8 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
     /// Target position as a fraction of content height, so the view can rescale
     /// it against the height SwiftUI actually laid out.
     @Published private(set) var voiceTargetRelativeY: CGFloat?
+    /// Character range of the word being spoken, for live highlighting.
+    @Published private(set) var voiceHighlightRange: NSRange?
 
     private let speechFollower = SpeechFollower()
     private let aligner = TranscriptAligner()
@@ -126,6 +131,8 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
         static let countdownBehavior = "countdownBehavior"
         static let scrollMode = "scrollMode"
         static let selectedScreenID = "selectedScreenID"
+        static let captureArrowKeys = "captureArrowKeys"
+        static let didMigrateToSinglePass = "didMigrateToSinglePass"
     }
 
     private init() {}
@@ -149,6 +156,7 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
         savedScrollPhaseForResume = nil
         currentWordIndex = 0
         voiceTargetRelativeY = nil
+        voiceHighlightRange = nil
         voiceIsTracking = false
         lastConfidentMatch = nil
         resetToken = UUID()
@@ -304,6 +312,7 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
             voiceStatusMessage = nil
             voiceIsTracking = false
             voiceTargetRelativeY = nil
+            voiceHighlightRange = nil
             currentWordIndex = 0
             lastConfidentMatch = nil
 
@@ -387,7 +396,38 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
         lastConfidentMatch = Date()
         voiceIsTracking = true
         voiceTargetRelativeY = scriptIndex.entries[match.wordIndex].relativeY
+        voiceHighlightRange = scriptIndex.entries[match.wordIndex].range
     }
+
+    #if DEBUG
+    /// TEMP DIAGNOSTIC: enable voice-follow state without touching the mic.
+    func debugEnableVoiceFollowNoMic() {
+        voiceFollowEnabled = true
+        manualScrollEnabled = false
+        didReachEndInStopMode = false
+        hasStartedSession = true
+        isRunning = true
+        currentWordIndex = 0
+        rebuildScriptIndexIfNeeded()
+        NSLog("[NPDIAG] enabled: layoutW=%.0f fontSize=%.0f indexEntries=%d scriptTokens=%d",
+              layoutWidth, fontSize, scriptIndex.count, scriptTokens.count)
+        if scriptTokens.count > 3 {
+            NSLog("[NPDIAG]   first tokens: %@", scriptTokens.prefix(6).joined(separator: ","))
+            NSLog("[NPDIAG]   relY[0]=%.4f relY[last]=%.4f",
+                  scriptIndex.entries.first?.relativeY ?? -1,
+                  scriptIndex.entries.last?.relativeY ?? -1)
+        }
+    }
+
+    /// TEMP DIAGNOSTIC: drive alignment without a microphone.
+    func debugFeedTranscript(_ tokens: [String]) {
+        NSLog("[NPDIAG] feed=%@ idx=%d scriptTokens=%d layoutW=%.0f",
+              tokens.joined(separator: " "), currentWordIndex, scriptTokens.count, layoutWidth)
+        handleTranscript(tokens)
+        NSLog("[NPDIAG]   -> idx=%d tracking=%@ relY=%@",
+              currentWordIndex, String(describing: voiceIsTracking), String(describing: voiceTargetRelativeY))
+    }
+    #endif
 
     private func expireTrackingIfStale() {
         guard let last = lastConfidentMatch else { return }
@@ -469,9 +509,17 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
            let savedMode = ScrollMode(rawValue: rawValue) {
             scrollMode = savedMode
         } else {
-            scrollMode = .infinite
+            scrollMode = .stopAtEnd
+        }
+
+        // One-time migration: looping was the old default and reads as a bug
+        // ("my script repeats forever"), so move existing sessions to one pass.
+        if !defaults.bool(forKey: DefaultsKey.didMigrateToSinglePass) {
+            scrollMode = .stopAtEnd
+            defaults.set(true, forKey: DefaultsKey.didMigrateToSinglePass)
         }
         selectedScreenID = CGDirectDisplayID(defaults.object(forKey: DefaultsKey.selectedScreenID) as? UInt32 ?? 0)
+        captureArrowKeys = defaults.object(forKey: DefaultsKey.captureArrowKeys) as? Bool ?? true
     }
 
     func saveToDefaults() {
@@ -489,6 +537,7 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
         defaults.set(countdownBehavior.rawValue, forKey: DefaultsKey.countdownBehavior)
         defaults.set(scrollMode.rawValue, forKey: DefaultsKey.scrollMode)
         defaults.set(selectedScreenID, forKey: DefaultsKey.selectedScreenID)
+        defaults.set(captureArrowKeys, forKey: DefaultsKey.captureArrowKeys)
     }
 
     private func beginCountdown(seconds: Int) {
