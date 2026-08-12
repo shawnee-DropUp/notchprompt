@@ -297,7 +297,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         model.adjustSpeed(delta: -PrompterModel.speedStep)
     }
 
-    @objc private func openMainWindow() {
+    @objc func openMainWindow() {
         Task { @MainActor in
             if settingsWindowController == nil {
                 settingsWindowController = SettingsWindowController()

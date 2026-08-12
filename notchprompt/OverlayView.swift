@@ -177,6 +177,11 @@ struct OverlayView: View {
                     Spacer(minLength: 8)
                     
                     HStack(spacing: 6) {
+                        OverlayControlButton(symbol: "gearshape.fill") {
+                            (NSApp.delegate as? AppDelegate)?.openMainWindow()
+                        }
+                        .help("Open Settings")
+
                         OverlayControlButton(symbol: "doc.on.clipboard") {
                             if let text = NSPasteboard.general.string(forType: .string) {
                                 model.pasteScript(text)

@@ -56,7 +56,7 @@ struct ScrollingTextView: View {
     }
 
     private var emptyStateMessage: String {
-        "No script yet.\nOpen Settings and paste your script to begin."
+        "No script yet.\nClick the gear icon above to open Settings and paste your script."
     }
 
     private var initialStateMessage: String {
