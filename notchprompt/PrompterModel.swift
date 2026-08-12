@@ -371,6 +371,7 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
             .store(in: &voiceCancellables)
 
         speechFollower.$status
+            .dropFirst()
             .receive(on: RunLoop.main)
             .sink { [weak self] status in
                 guard let self else { return }

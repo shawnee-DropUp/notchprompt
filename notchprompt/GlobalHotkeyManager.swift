@@ -173,7 +173,6 @@ final class GlobalHotkeyManager {
         guard transportRefs.isEmpty else { return }
 
         installHandlerIfNeeded()
-        defer { NSLog("[NPKEYS] arrow keys claimed: %d/%d", transportRefs.count, TransportKey.allCases.count) }
         for key in TransportKey.allCases {
             var ref: EventHotKeyRef?
             let id = EventHotKeyID(signature: Self.signature, id: key.hotKeyID)

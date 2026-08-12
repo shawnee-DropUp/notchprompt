@@ -35,6 +35,8 @@ final class SpeechFollower: ObservableObject {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var restartTask: Task<Void, Never>?
+    private var consecutiveFailures = 0
+    private static let maxConsecutiveFailures = 3
 
     /// Recognition tasks have a bounded lifetime; cycle before hitting it so the
     /// follower never silently stops listening mid-script.
@@ -43,11 +45,14 @@ final class SpeechFollower: ObservableObject {
     /// instead of growing with session length.
     private static let transcriptTailCharacters = 220
     private static let keptTokens = 12
+    private static let recognitionErrorDomain = "kLSRErrorDomain"
+    private static let dictationDisabledCode = 201
 
     // MARK: - Lifecycle
 
     func start() async {
         guard !status.isActive else { return }
+        consecutiveFailures = 0
         status = .starting
 
         guard await Self.requestSpeechAuthorization() else {
@@ -73,13 +78,8 @@ final class SpeechFollower: ObservableObject {
         self.recognizer = recognizer
 
         do {
-            NSLog("[NPSPEECH] onDevice=%@ available=%@ locale=%@",
-                  String(describing: recognizer.supportsOnDeviceRecognition),
-                  String(describing: recognizer.isAvailable),
-                  recognizer.locale.identifier)
             try beginSession()
             status = .listening
-            NSLog("[NPSPEECH] listening")
             scheduleRecycle()
         } catch {
             teardownAudio()
@@ -117,10 +117,8 @@ final class SpeechFollower: ObservableObject {
             request?.append(buffer)
         }
 
-        NSLog("[NPSPEECH] input format: %.0fHz ch=%d", format.sampleRate, format.channelCount)
         engine.prepare()
         try engine.start()
-        NSLog("[NPSPEECH] engine started running=%@", String(describing: engine.isRunning))
 
         task = recognizer?.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
@@ -131,13 +129,33 @@ final class SpeechFollower: ObservableObject {
     }
 
     private func handle(result: SFSpeechRecognitionResult?, error: Error?) {
-        if let error {
-            NSLog("[NPSPEECH] task error: %@", String(describing: error))
-        }
         if let result {
-            NSLog("[NPSPEECH] heard: '%@' final=%@",
-                  result.bestTranscription.formattedString, String(describing: result.isFinal))
+            consecutiveFailures = 0
             transcriptTokens = Self.tailTokens(from: result.bestTranscription.formattedString)
+        }
+
+        if let error {
+            let nsError = error as NSError
+
+            // macOS gates all speech recognition behind the Dictation switch,
+            // even fully on-device. Retrying can never clear this, so say what
+            // to do instead of looping.
+            if nsError.domain == Self.recognitionErrorDomain,
+               nsError.code == Self.dictationDisabledCode {
+                teardownAudio()
+                status = .unavailable("macOS Dictation is turned off, so speech recognition can't run. "
+                                      + "Turn it on in System Settings › Keyboard › Dictation, then click the mic again.")
+                return
+            }
+
+            consecutiveFailures += 1
+            // Without this, a persistent failure restarts the engine in a tight
+            // loop forever, burning CPU and never surfacing anything to the user.
+            if consecutiveFailures >= Self.maxConsecutiveFailures {
+                teardownAudio()
+                status = .unavailable("Speech recognition kept failing: \(error.localizedDescription)")
+                return
+            }
         }
 
         guard error != nil || (result?.isFinal ?? false) else { return }
@@ -161,7 +179,6 @@ final class SpeechFollower: ObservableObject {
         do {
             try beginSession()
             status = .listening
-            NSLog("[NPSPEECH] restarted, listening")
             scheduleRecycle()
         } catch {
             status = .unavailable("Microphone stopped: \(error.localizedDescription)")

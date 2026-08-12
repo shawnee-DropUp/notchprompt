@@ -328,9 +328,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc private func openMainWindow() {
+        Task { @MainActor in
+            if settingsWindowController == nil {
+                settingsWindowController = SettingsWindowController()
+            }
+            settingsWindowController?.show()
+        }
     }
-    
+
     @objc private func openScriptEditorWindow() {
+        Task { @MainActor in
+            if scriptEditorWindowController == nil {
+                scriptEditorWindowController = ScriptEditorWindowController()
+            }
+            scriptEditorWindowController?.show()
+        }
     }
 
     @objc private func quitApp() {
