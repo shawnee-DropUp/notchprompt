@@ -90,6 +90,11 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
     /// Hold position if the speaker goes off-script or falls silent this long.
     private static let trackingTimeout: TimeInterval = 2.5
 
+    /// Signals AppDelegate to open Settings. Routed through the model because
+    /// SwiftUI's delegate adaptor wraps AppDelegate in its own class, so views
+    /// cannot reach it by casting NSApp.delegate.
+    @Published private(set) var openSettingsToken: UUID = UUID()
+
     // Used to signal an immediate reset to the scrolling view.
     @Published private(set) var resetToken: UUID = UUID()
     @Published private(set) var jumpBackToken: UUID = UUID()
@@ -281,6 +286,10 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
 
     func clearVoiceStatusMessage() {
         voiceStatusMessage = nil
+    }
+
+    func requestOpenSettings() {
+        openSettingsToken = UUID()
     }
 
     func setVoiceFollow(_ enabled: Bool) {

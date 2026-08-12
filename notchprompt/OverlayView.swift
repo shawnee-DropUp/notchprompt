@@ -193,7 +193,7 @@ struct OverlayView: View {
                     
                     HStack(spacing: 6) {
                         OverlayControlButton(symbol: "gearshape.fill") {
-                            (NSApp.delegate as? AppDelegate)?.openMainWindow()
+                            model.requestOpenSettings()
                         }
                         .help("Open Settings")
 

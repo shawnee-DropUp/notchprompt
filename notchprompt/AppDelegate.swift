@@ -72,6 +72,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             .store(in: &cancellables)
 
+        // dropFirst so the initial token value doesn't open Settings at launch.
+        model.$openSettingsToken
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.openMainWindow()
+            }
+            .store(in: &cancellables)
+
         Publishers.CombineLatest(model.$overlayWidth, model.$overlayHeight)
             .removeDuplicates { lhs, rhs in
                 Int(lhs.0) == Int(rhs.0) && Int(lhs.1) == Int(rhs.1)
@@ -298,7 +307,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         model.adjustSpeed(delta: -PrompterModel.speedStep)
     }
 
-    @objc func openMainWindow() {
+    @objc private func openMainWindow() {
         Task { @MainActor in
             if settingsWindowController == nil {
                 settingsWindowController = SettingsWindowController()
