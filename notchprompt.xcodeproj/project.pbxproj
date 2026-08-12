@@ -263,9 +263,12 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Notchprompt listens to your voice so the teleprompter can scroll in time with what you are reading. Audio is processed on-device and is never recorded or sent anywhere.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Notchprompt matches your speech against your script to keep the scroll position in sync. Recognition runs on-device.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -295,9 +298,12 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Notchprompt listens to your voice so the teleprompter can scroll in time with what you are reading. Audio is processed on-device and is never recorded or sent anywhere.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Notchprompt matches your speech against your script to keep the scroll position in sync. Recognition runs on-device.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

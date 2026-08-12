@@ -132,6 +132,8 @@ struct OverlayView: View {
                 isHovering: false,
                 scrollMode: model.scrollMode,
                 savedScrollPhaseForResume: model.savedScrollPhaseForResume,
+                voiceFollowEnabled: model.voiceFollowEnabled,
+                voiceTargetRelativeY: model.voiceTargetRelativeY,
                 onSaveScrollPhaseForResume: { phase in
                     model.saveScrollPhaseForResume(phase)
                 },
@@ -139,6 +141,9 @@ struct OverlayView: View {
                     if model.isRunning {
                         model.markReachedEndInStopMode()
                     }
+                },
+                onReportLayoutWidth: { width in
+                    model.reportLayoutWidth(width)
                 }
             )
             .padding(.horizontal, 18)
@@ -165,6 +170,16 @@ struct OverlayView: View {
                             model.jumpBack(seconds: 5)
                         }
                         .help("Jump back 5 seconds")
+
+                        OverlayControlButton(
+                            symbol: model.voiceIsTracking ? "waveform" : "mic.fill",
+                            isActive: model.voiceFollowEnabled
+                        ) {
+                            model.toggleVoiceFollow()
+                        }
+                        .help(model.voiceFollowEnabled
+                              ? "Voice follow on — the script tracks what you read"
+                              : "Voice follow: scroll in time with your speech")
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
@@ -220,6 +235,26 @@ struct OverlayView: View {
                 .padding(.horizontal, 10)
                 .padding(.top, 8)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            }
+
+            if let message = model.voiceStatusMessage {
+                Text(message)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.92))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(Color.black.opacity(0.85), in: RoundedRectangle(cornerRadius: 10))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.white.opacity(0.14), lineWidth: 1)
+                    )
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 10)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .onTapGesture { model.clearVoiceStatusMessage() }
+                    .help("Tap to dismiss")
             }
 
             if model.isCountingDown {

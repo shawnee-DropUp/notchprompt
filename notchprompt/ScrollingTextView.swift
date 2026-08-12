@@ -23,8 +23,11 @@ struct ScrollingTextView: View {
     let isHovering: Bool
     let scrollMode: PrompterModel.ScrollMode
     let savedScrollPhaseForResume: CGFloat?
+    let voiceFollowEnabled: Bool
+    let voiceTargetRelativeY: CGFloat?
     let onSaveScrollPhaseForResume: ((CGFloat) -> Void)?
     let onReachedEnd: (() -> Void)?
+    let onReportLayoutWidth: ((CGFloat) -> Void)?
 
     private static let loopGap: CGFloat = 24
     private static let activeTickInterval: TimeInterval = 1.0 / 60.0
@@ -42,6 +45,16 @@ struct ScrollingTextView: View {
 
     // Smooth deceleration/acceleration rate (0-1, higher = faster)
     private let speedLerpFactor: Double = 8.0
+
+    // MARK: Voice follow control loop
+    /// Points/second of correction per point of error. Recognition lags by
+    /// several hundred ms, so this is deliberately gentle — snapping to the
+    /// matched word makes the text twitch and become unreadable.
+    private let voiceGain: CGFloat = 2.2
+    /// Ceiling on correction speed, so a bad match can't fling the script away.
+    private let voiceMaxSpeed: CGFloat = 420
+    /// Ignore sub-pixel error; prevents shimmer when parked on a word.
+    private let voiceDeadband: CGFloat = 3
 
     private var hasContent: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -150,11 +163,15 @@ struct ScrollingTextView: View {
                 .frame(width: viewportProxy.size.width, height: viewportProxy.size.height, alignment: .topLeading)
                 .onAppear {
                     viewportHeight = max(viewportProxy.size.height, 0)
+                    onReportLayoutWidth?(viewportProxy.size.width)
                     restoreOrResetPhase()
                 }
                 .onChange(of: viewportProxy.size.height) { _, newHeight in
                     viewportHeight = max(newHeight, 0)
                     normalizeTopAnchorIfNearStart()
+                }
+                .onChange(of: viewportProxy.size.width) { _, newWidth in
+                    onReportLayoutWidth?(newWidth)
                 }
                 .onChange(of: resetToken) { _, _ in
                     deferredStopTargetPhase = nil
@@ -319,6 +336,24 @@ struct ScrollingTextView: View {
         phase = max(phase, topOfScriptPhaseFloor)
     }
 
+    /// Proportional control toward the word the speaker is currently reading.
+    ///
+    /// Returns 0 while no confident match exists, which parks the script instead
+    /// of drifting — pausing to think should not run the prompter away from you.
+    private func voiceVelocity(multiplier: Double) -> CGFloat {
+        guard hasMeasuredContentHeight, let relativeY = voiceTargetRelativeY else { return 0 }
+
+        // Resolve the target inside whichever loop iteration the reader is in.
+        let cycleBase = phase - phase.truncatingRemainder(dividingBy: cycleLength)
+        let targetPhase = cycleBase + (relativeY * contentHeight) - startAnchorOffset
+
+        let error = targetPhase - phase
+        guard abs(error) > voiceDeadband else { return 0 }
+
+        let corrected = min(max(error * voiceGain, -voiceMaxSpeed), voiceMaxSpeed)
+        return corrected * CGFloat(multiplier)
+    }
+
     private func tick(at date: Date) {
         guard hasContent else {
             lastTickDate = date
@@ -352,7 +387,10 @@ struct ScrollingTextView: View {
                 currentSpeedMultiplier = targetSpeedMultiplier
             }
 
-            phase += CGFloat(speedPointsPerSecond) * CGFloat(currentSpeedMultiplier) * step
+            let velocity = voiceFollowEnabled
+                ? voiceVelocity(multiplier: currentSpeedMultiplier)
+                : CGFloat(speedPointsPerSecond) * CGFloat(currentSpeedMultiplier)
+            phase += velocity * step
 
             // Lazily compute the stop target on the first tick after entering
             // stopAtEnd mode. This runs in the same code path that checks the

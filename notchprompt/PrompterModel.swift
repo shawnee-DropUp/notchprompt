@@ -65,6 +65,31 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
     // Fraction of the viewport height to fade at top and bottom.
     let edgeFadeFraction: Double = 0.20
 
+    // MARK: Voice follow
+    @Published private(set) var voiceFollowEnabled: Bool = false
+    /// Non-nil when voice follow can't run; surfaced to the user.
+    @Published private(set) var voiceStatusMessage: String?
+    /// True while the aligner is confidently locked onto the script.
+    @Published private(set) var voiceIsTracking: Bool = false
+    /// Target position as a fraction of content height, so the view can rescale
+    /// it against the height SwiftUI actually laid out.
+    @Published private(set) var voiceTargetRelativeY: CGFloat?
+
+    private let speechFollower = SpeechFollower()
+    private let aligner = TranscriptAligner()
+    private var scriptIndex: ScriptIndex = .empty
+    private var scriptTokens: [String] = []
+    private var currentWordIndex: Int = 0
+    private var lastConfidentMatch: Date?
+    private var voiceCancellables = Set<AnyCancellable>()
+    private var layoutWidth: CGFloat = 0
+
+    /// Backward jumps need more evidence than forward ones — a repeated word
+    /// shouldn't yank the script backwards mid-sentence.
+    private static let backwardJumpConfidence: Double = 0.8
+    /// Hold position if the speaker goes off-script or falls silent this long.
+    private static let trackingTimeout: TimeInterval = 2.5
+
     // Used to signal an immediate reset to the scrolling view.
     @Published private(set) var resetToken: UUID = UUID()
     @Published private(set) var jumpBackToken: UUID = UUID()
@@ -117,6 +142,10 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
         didReachEndInStopMode = false
         shouldUseCountdownOnNextStart = true
         savedScrollPhaseForResume = nil
+        currentWordIndex = 0
+        voiceTargetRelativeY = nil
+        voiceIsTracking = false
+        lastConfidentMatch = nil
         resetToken = UUID()
     }
 
@@ -239,6 +268,123 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
         isCountingDown = false
         countdownRemaining = 0
         isRunning = false
+        if voiceFollowEnabled {
+            setVoiceFollow(false)
+        }
+    }
+
+    // MARK: - Voice follow
+
+    func toggleVoiceFollow() {
+        setVoiceFollow(!voiceFollowEnabled)
+    }
+
+    func clearVoiceStatusMessage() {
+        voiceStatusMessage = nil
+    }
+
+    func setVoiceFollow(_ enabled: Bool) {
+        guard enabled != voiceFollowEnabled else { return }
+
+        if enabled {
+            guard !script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                voiceStatusMessage = "Paste a script before starting voice follow."
+                return
+            }
+            voiceFollowEnabled = true
+            voiceStatusMessage = nil
+            voiceIsTracking = false
+            voiceTargetRelativeY = nil
+            currentWordIndex = 0
+            lastConfidentMatch = nil
+
+            // Voice follow is its own transport: no countdown, and the timed
+            // scroll must not fight the control loop for the same phase value.
+            manualScrollEnabled = false
+            didReachEndInStopMode = false
+            hasStartedSession = true
+            isRunning = true
+
+            rebuildScriptIndexIfNeeded()
+            observeSpeechFollower()
+            Task { await speechFollower.start() }
+        } else {
+            voiceFollowEnabled = false
+            voiceIsTracking = false
+            voiceTargetRelativeY = nil
+            voiceCancellables.removeAll()
+            speechFollower.stop()
+        }
+    }
+
+    /// The scrolling view reports the width it actually laid text out at, so the
+    /// index is built against identical geometry.
+    func reportLayoutWidth(_ width: CGFloat) {
+        guard width > 1, abs(width - layoutWidth) > 1 else { return }
+        layoutWidth = width
+        rebuildScriptIndexIfNeeded()
+    }
+
+    private func rebuildScriptIndexIfNeeded() {
+        guard voiceFollowEnabled, layoutWidth > 1 else { return }
+        guard scriptIndex.isStale(script: script, fontSize: fontSize, width: layoutWidth) else { return }
+
+        scriptIndex = ScriptIndex.build(script: script, fontSize: fontSize, width: layoutWidth)
+        scriptTokens = scriptIndex.entries.map(\.token)
+        currentWordIndex = min(currentWordIndex, max(0, scriptTokens.count - 1))
+    }
+
+    private func observeSpeechFollower() {
+        voiceCancellables.removeAll()
+
+        speechFollower.$transcriptTokens
+            .receive(on: RunLoop.main)
+            .sink { [weak self] tokens in
+                self?.handleTranscript(tokens)
+            }
+            .store(in: &voiceCancellables)
+
+        speechFollower.$status
+            .receive(on: RunLoop.main)
+            .sink { [weak self] status in
+                guard let self else { return }
+                if case .unavailable(let reason) = status {
+                    self.voiceStatusMessage = reason
+                    self.setVoiceFollow(false)
+                }
+            }
+            .store(in: &voiceCancellables)
+    }
+
+    private func handleTranscript(_ tokens: [String]) {
+        guard voiceFollowEnabled, !tokens.isEmpty else { return }
+        rebuildScriptIndexIfNeeded()
+        guard !scriptTokens.isEmpty else { return }
+
+        guard let match = aligner.match(transcriptTokens: tokens,
+                                        scriptTokens: scriptTokens,
+                                        currentIndex: currentWordIndex) else {
+            expireTrackingIfStale()
+            return
+        }
+
+        let isBackward = match.wordIndex < currentWordIndex
+        if isBackward && match.confidence < Self.backwardJumpConfidence {
+            expireTrackingIfStale()
+            return
+        }
+
+        currentWordIndex = match.wordIndex
+        lastConfidentMatch = Date()
+        voiceIsTracking = true
+        voiceTargetRelativeY = scriptIndex.entries[match.wordIndex].relativeY
+    }
+
+    private func expireTrackingIfStale() {
+        guard let last = lastConfidentMatch else { return }
+        if Date().timeIntervalSince(last) > Self.trackingTimeout {
+            voiceIsTracking = false
+        }
     }
 
     func setSpeed(_ value: Double) {

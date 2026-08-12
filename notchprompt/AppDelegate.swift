@@ -40,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
 #if DEBUG
         ScreenSelectionSelfTests.run()
+        TranscriptAlignerSelfTests.run()
         runShortcutSelfChecks()
 #endif
 
