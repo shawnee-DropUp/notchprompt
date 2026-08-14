@@ -137,6 +137,8 @@ struct OverlayView: View {
                 voiceHighlightRange: model.voiceHighlightRange,
                 voiceLookAheadRelativeY: model.voiceLookAheadRelativeY,
                 voiceCurrentWordEndsLine: model.voiceCurrentWordEndsLine,
+                voiceLastMatchAt: model.voiceLastMatchAt,
+                voiceRecoveryPace: model.voiceRecoveryPace,
                 onSaveScrollPhaseForResume: { phase in
                     model.saveScrollPhaseForResume(phase)
                 },
@@ -173,6 +175,16 @@ struct OverlayView: View {
                             model.jumpBack(seconds: 5)
                         }
                         .help("Jump back 5 seconds")
+
+                        if !model.privacyModeEnabled {
+                            // Silence here would be dangerous: the cost of not
+                            // noticing is the audience seeing the script.
+                            OverlayControlButton(symbol: "eye.trianglebadge.exclamationmark.fill",
+                                                 tint: .orange) {
+                                model.privacyModeEnabled = true
+                            }
+                            .help("Visible to screen sharing and recording — click to hide it again")
+                        }
 
                         OverlayControlButton(
                             symbol: model.voiceIsTracking ? "waveform" : "mic.fill",
@@ -279,6 +291,7 @@ private struct OverlayControlButton: View {
     let symbol: String
     var isActive: Bool = false
     var repeatWhilePressed: Bool = false
+    var tint: Color = .white
     let action: () -> Void
 
     var body: some View {
@@ -289,7 +302,7 @@ private struct OverlayControlButton: View {
         } label: {
             Image(systemName: symbol)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(tint)
                 .frame(width: 22, height: 22)
                 .contentShape(Circle())
         }

@@ -36,6 +36,8 @@ final class SpeechFollower: ObservableObject {
     private var task: SFSpeechRecognitionTask?
     private var restartTask: Task<Void, Never>?
     private var consecutiveFailures = 0
+    /// Distinctive script words the recogniser should expect to hear.
+    var contextualHints: [String] = []
     private static let maxConsecutiveFailures = 3
 
     /// Recognition tasks have a bounded lifetime; cycle before hitting it so the
@@ -103,6 +105,9 @@ final class SpeechFollower: ObservableObject {
         request.requiresOnDeviceRecognition = true
         // Bias the recognizer toward dictated prose rather than short commands.
         request.taskHint = .dictation
+        // The script is known in advance, so bias recognition toward its own
+        // vocabulary rather than making the recogniser guess from scratch.
+        request.contextualStrings = contextualHints
         self.request = request
 
         let input = engine.inputNode

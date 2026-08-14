@@ -63,7 +63,25 @@ enum TranscriptAlignerSelfTests {
                "The last word must report no look-ahead")
     }
 
+    /// Hints are a limited budget, so they must land on the words the recogniser
+    /// is likely to get wrong and skip the ones it already knows.
+    private static func assertScriptHints() {
+        let script = "Before migration 013 lands, the Supabase webhook and Vercel deploy must agree."
+        let hints = ScriptHints.extract(from: script).map { $0.lowercased() }
+
+        for expected in ["migration", "013", "supabase", "webhook", "vercel"] {
+            assert(hints.contains(expected), "Expected '\(expected)' among hints: \(hints)")
+        }
+        for common in ["before", "that", "must"] {
+            assert(!hints.contains(common), "Common word '\(common)' should not spend a hint slot")
+        }
+        assert(hints.count == Set(hints).count, "Hints must be deduplicated")
+        assert(ScriptHints.extract(from: script, limit: 2).count == 2, "Hint limit must be honoured")
+        assert(ScriptHints.extract(from: "").isEmpty, "Empty script yields no hints")
+    }
+
     static func run() {
+        assertScriptHints()
         assertExactTailMatches()
         assertToleratesMisrecognition()
         assertRejectsOffScriptSpeech()

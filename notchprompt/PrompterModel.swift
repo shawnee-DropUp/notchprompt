@@ -86,6 +86,12 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
     /// True when the spoken word is the last one on its line. Only then is it
     /// safe to scroll it away in favour of what comes next.
     @Published private(set) var voiceCurrentWordEndsLine: Bool = false
+    /// When the last confident match happened, so the view can tell a pause from
+    /// a genuine loss of the lock.
+    @Published private(set) var voiceLastMatchAt: Date?
+    /// Measured reading pace in relative-height units per second, used to keep
+    /// creeping forward while off-script instead of stalling outright.
+    @Published private(set) var voiceRecoveryPace: CGFloat?
 
     private let speechFollower = SpeechFollower()
     private let aligner = TranscriptAligner()
@@ -93,6 +99,8 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
     private var scriptTokens: [String] = []
     private var currentWordIndex: Int = 0
     private var lastConfidentMatch: Date?
+    /// Recent (time, position) matches, for estimating reading pace.
+    private var paceSamples: [(at: Date, relativeY: CGFloat)] = []
     private var voiceCancellables = Set<AnyCancellable>()
     private var layoutWidth: CGFloat = 0
 
@@ -101,6 +109,8 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
     private static let backwardJumpConfidence: Double = 0.8
     /// Hold position if the speaker goes off-script or falls silent this long.
     private static let trackingTimeout: TimeInterval = 2.5
+    /// Ceiling on inferred pace, as a fraction of the script per second.
+    private static let maximumRecoveryPace: CGFloat = 0.05
 
     /// Signals AppDelegate to open Settings. Routed through the model because
     /// SwiftUI's delegate adaptor wraps AppDelegate in its own class, so views
@@ -176,6 +186,9 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
         voiceCurrentWordEndsLine = false
         voiceIsTracking = false
         lastConfidentMatch = nil
+        voiceLastMatchAt = nil
+        voiceRecoveryPace = nil
+        paceSamples.removeAll()
         resetToken = UUID()
     }
 
@@ -334,6 +347,9 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
             voiceCurrentWordEndsLine = false
             currentWordIndex = 0
             lastConfidentMatch = nil
+            voiceLastMatchAt = nil
+            voiceRecoveryPace = nil
+            paceSamples.removeAll()
 
             // Voice follow is its own transport: no countdown, and the timed
             // scroll must not fight the control loop for the same phase value.
@@ -343,6 +359,7 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
             isRunning = true
 
             rebuildScriptIndexIfNeeded()
+            speechFollower.contextualHints = ScriptHints.extract(from: script)
             observeSpeechFollower()
             Task { await speechFollower.start() }
         } else {
@@ -368,6 +385,7 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
 
         scriptIndex = ScriptIndex.build(script: script, fontSize: fontSize, width: layoutWidth)
         scriptTokens = scriptIndex.entries.map(\.token)
+        speechFollower.contextualHints = ScriptHints.extract(from: script)
         currentWordIndex = min(currentWordIndex, max(0, scriptTokens.count - 1))
     }
 
@@ -413,7 +431,10 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
         }
 
         currentWordIndex = match.wordIndex
-        lastConfidentMatch = Date()
+        let now = Date()
+        lastConfidentMatch = now
+        voiceLastMatchAt = now
+        recordPaceSample(at: now, relativeY: scriptIndex.entries[match.wordIndex].relativeY)
         voiceIsTracking = true
         voiceTargetRelativeY = scriptIndex.entries[match.wordIndex].relativeY
         voiceHighlightRange = scriptIndex.entries[match.wordIndex].range
@@ -440,6 +461,21 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
         let entries = scriptIndex.entries
         guard entries.indices.contains(index), index + 1 < entries.count else { return false }
         return entries[index + 1].relativeY > entries[index].relativeY + 0.0001
+    }
+
+    /// Pace over the recent window, ignoring samples too close together to be
+    /// meaningful. Clamped so one bad match cannot imply a wild reading speed.
+    private func recordPaceSample(at date: Date, relativeY: CGFloat) {
+        paceSamples.append((date, relativeY))
+        if paceSamples.count > 8 { paceSamples.removeFirst(paceSamples.count - 8) }
+
+        guard let first = paceSamples.first, let last = paceSamples.last else { return }
+        let elapsed = last.at.timeIntervalSince(first.at)
+        let advanced = last.relativeY - first.relativeY
+        guard elapsed > 1.0, advanced > 0 else { return }
+
+        let pace = advanced / CGFloat(elapsed)
+        voiceRecoveryPace = min(pace, Self.maximumRecoveryPace)
     }
 
     private func expireTrackingIfStale() {

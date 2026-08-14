@@ -29,6 +29,8 @@ struct ScrollingTextView: View {
     let voiceHighlightRange: NSRange?
     let voiceLookAheadRelativeY: CGFloat?
     let voiceCurrentWordEndsLine: Bool
+    let voiceLastMatchAt: Date?
+    let voiceRecoveryPace: CGFloat?
     let onSaveScrollPhaseForResume: ((CGFloat) -> Void)?
     let onReachedEnd: (() -> Void)?
     let onReportLayoutWidth: ((CGFloat) -> Void)?
@@ -62,6 +64,16 @@ struct ScrollingTextView: View {
     private let voiceMaxSpeed: CGFloat = 420
     /// Ignore sub-pixel error; prevents shimmer when parked on a word.
     private let voiceDeadband: CGFloat = 3
+
+    // MARK: Off-script recovery
+    /// Silence shorter than this is a pause for breath, not a lost lock.
+    private let voiceRecoveryDelay: TimeInterval = 4.0
+    /// Creep at a fraction of measured pace: slow enough to be corrected easily,
+    /// fast enough to keep up if the reader is simply ad-libbing a sentence.
+    private let voiceRecoveryFraction: CGFloat = 0.5
+    /// Total drift allowed without a match, in lines. Bounding this is what makes
+    /// creeping safe -- a long pause can only ever cost this much.
+    private let voiceRecoveryMaxLines: CGFloat = 2
 
     private var hasContent: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -357,6 +369,14 @@ struct ScrollingTextView: View {
         if let voiceHighlightRange,
            let stringRange = Range(voiceHighlightRange, in: text),
            let attributedRange = Range(stringRange, in: attributed) {
+
+            // Fade what has already been spoken. On a viewport only a few lines
+            // tall every line competes for attention; dimming the past leaves the
+            // eye with one obvious place to land.
+            if let spokenRange = Range(text.startIndex..<stringRange.lowerBound, in: attributed) {
+                attributed[spokenRange].foregroundColor = .white.opacity(0.35)
+            }
+
             attributed[attributedRange].foregroundColor = .black
             attributed[attributedRange].backgroundColor = .yellow
         }
@@ -367,7 +387,7 @@ struct ScrollingTextView: View {
     ///
     /// Returns 0 while no confident match exists, which parks the script instead
     /// of drifting — pausing to think should not run the prompter away from you.
-    private func voiceVelocity(multiplier: Double) -> CGFloat {
+    private func voiceVelocity(multiplier: Double, now: Date) -> CGFloat {
         guard hasMeasuredContentHeight, let relativeY = voiceTargetRelativeY else { return 0 }
 
         // Resolve the target inside whichever loop iteration the reader is in.
@@ -390,6 +410,16 @@ struct ScrollingTextView: View {
 
             // Enough scroll for the whole next line to clear the bottom fade.
             targetPhase = max(targetPhase, lookAheadY + lineHeight - bottomReadableEdge)
+        }
+
+        // Going off-script strands the reader: the scroll only advances on words
+        // it recognises, so improvising stops it dead. Creep forward at the pace
+        // already measured, capped so a pause to think cannot run away.
+        if let voiceLastMatchAt, let voiceRecoveryPace, voiceRecoveryPace > 0,
+           now.timeIntervalSince(voiceLastMatchAt) > voiceRecoveryDelay {
+            let driftCeiling = targetPhase + (fontSize * 1.3 * voiceRecoveryMaxLines)
+            guard phase < driftCeiling else { return 0 }
+            return voiceRecoveryPace * contentHeight * voiceRecoveryFraction * CGFloat(multiplier)
         }
 
         let error = targetPhase - phase
@@ -433,7 +463,7 @@ struct ScrollingTextView: View {
             }
 
             let velocity = voiceFollowEnabled
-                ? voiceVelocity(multiplier: currentSpeedMultiplier)
+                ? voiceVelocity(multiplier: currentSpeedMultiplier, now: date)
                 : CGFloat(speedPointsPerSecond) * CGFloat(currentSpeedMultiplier)
             phase += velocity * step
 
