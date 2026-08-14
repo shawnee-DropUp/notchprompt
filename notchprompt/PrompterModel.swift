@@ -111,6 +111,9 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
     private static let trackingTimeout: TimeInterval = 2.5
     /// Ceiling on inferred pace, as a fraction of the script per second.
     private static let maximumRecoveryPace: CGFloat = 0.05
+    /// Quiet period after which the local window is presumed wrong and the whole
+    /// script is searched. Long enough that ordinary pauses do not trigger it.
+    private static let resyncDelay: TimeInterval = 5.0
 
     /// Signals AppDelegate to open Settings. Routed through the model because
     /// SwiftUI's delegate adaptor wraps AppDelegate in its own class, so views
@@ -420,7 +423,7 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
         guard let match = aligner.match(transcriptTokens: tokens,
                                         scriptTokens: scriptTokens,
                                         currentIndex: currentWordIndex) else {
-            expireTrackingIfStale()
+            attemptResync(with: tokens)
             return
         }
 
@@ -430,16 +433,7 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
             return
         }
 
-        currentWordIndex = match.wordIndex
-        let now = Date()
-        lastConfidentMatch = now
-        voiceLastMatchAt = now
-        recordPaceSample(at: now, relativeY: scriptIndex.entries[match.wordIndex].relativeY)
-        voiceIsTracking = true
-        voiceTargetRelativeY = scriptIndex.entries[match.wordIndex].relativeY
-        voiceHighlightRange = scriptIndex.entries[match.wordIndex].range
-        voiceLookAheadRelativeY = Self.nextLineRelativeY(after: match.wordIndex, in: scriptIndex)
-        voiceCurrentWordEndsLine = Self.wordEndsLine(at: match.wordIndex, in: scriptIndex)
+        apply(matchAt: match.wordIndex)
     }
 
     /// Vertical position of the first word that sits on a later line than the
@@ -476,6 +470,40 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
 
         let pace = advanced / CGFloat(elapsed)
         voiceRecoveryPace = min(pace, Self.maximumRecoveryPace)
+    }
+
+    /// The windowed search only ever looks near the last known position, so
+    /// jumping elsewhere -- skipping ahead, answering questions out of order,
+    /// starting over -- leaves it permanently unable to find the reader. After a
+    /// quiet spell, search the whole script instead.
+    private func attemptResync(with tokens: [String]) {
+        guard let last = lastConfidentMatch,
+              Date().timeIntervalSince(last) > Self.resyncDelay,
+              let resync = aligner.matchAnywhere(transcriptTokens: tokens,
+                                                 scriptTokens: scriptTokens) else {
+            expireTrackingIfStale()
+            return
+        }
+
+        // A re-sync is deliberately allowed to move backwards; restarting from
+        // the top is one of the cases this exists to handle.
+        apply(matchAt: resync.wordIndex)
+    }
+
+    private func apply(matchAt index: Int) {
+        guard scriptIndex.entries.indices.contains(index) else { return }
+        let entry = scriptIndex.entries[index]
+
+        currentWordIndex = index
+        let now = Date()
+        lastConfidentMatch = now
+        voiceLastMatchAt = now
+        recordPaceSample(at: now, relativeY: entry.relativeY)
+        voiceIsTracking = true
+        voiceTargetRelativeY = entry.relativeY
+        voiceHighlightRange = entry.range
+        voiceLookAheadRelativeY = Self.nextLineRelativeY(after: index, in: scriptIndex)
+        voiceCurrentWordEndsLine = Self.wordEndsLine(at: index, in: scriptIndex)
     }
 
     private func expireTrackingIfStale() {

@@ -36,13 +36,22 @@ final class SpeechFollower: ObservableObject {
     private var task: SFSpeechRecognitionTask?
     private var restartTask: Task<Void, Never>?
     private var consecutiveFailures = 0
+    /// When the recogniser last produced anything, used to detect a speech gap.
+    private var lastResultAt = Date()
     /// Distinctive script words the recogniser should expect to hear.
     var contextualHints: [String] = []
     private static let maxConsecutiveFailures = 3
 
     /// Recognition tasks have a bounded lifetime; cycle before hitting it so the
     /// follower never silently stops listening mid-script.
-    private static let recycleInterval: TimeInterval = 50
+    private static let recycleInterval: TimeInterval = 45
+    /// Once due, wait for a gap in speech before cycling, so the restart never
+    /// lands mid-sentence and swallows words.
+    private static let recycleQuietPeriod: TimeInterval = 1.0
+    /// Recognition tasks have a hard lifetime, so waiting for quiet cannot go on
+    /// forever; past this the session is cycled regardless.
+    private static let recycleMaximumDeferral: TimeInterval = 12.0
+    private static let recyclePollInterval: TimeInterval = 0.4
     /// Only the tail matters for alignment, and this keeps tokenization O(1)
     /// instead of growing with session length.
     private static let transcriptTailCharacters = 220
@@ -136,6 +145,7 @@ final class SpeechFollower: ObservableObject {
     private func handle(result: SFSpeechRecognitionResult?, error: Error?) {
         if let result {
             consecutiveFailures = 0
+            lastResultAt = Date()
             transcriptTokens = Self.tailTokens(from: result.bestTranscription.formattedString)
         }
 
@@ -175,11 +185,24 @@ final class SpeechFollower: ObservableObject {
         restartTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(Self.recycleInterval * 1_000_000_000))
             guard !Task.isCancelled, let self, self.status.isActive else { return }
+
+            // Cycling tears the microphone down and back up, losing whatever is
+            // spoken in between. Hold off until the reader pauses, but not past
+            // the point where the task would expire on its own.
+            let deadline = Date().addingTimeInterval(Self.recycleMaximumDeferral)
+            while Date() < deadline {
+                if Date().timeIntervalSince(self.lastResultAt) >= Self.recycleQuietPeriod { break }
+                try? await Task.sleep(nanoseconds: UInt64(Self.recyclePollInterval * 1_000_000_000))
+                guard !Task.isCancelled, self.status.isActive else { return }
+            }
+
+            guard !Task.isCancelled, self.status.isActive else { return }
             self.restartSession()
         }
     }
 
     private func restartSession() {
+        lastResultAt = Date()
         teardownAudio()
         do {
             try beginSession()

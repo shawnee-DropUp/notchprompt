@@ -26,6 +26,48 @@ struct TranscriptAligner {
     /// Minimum confidence before a match is trusted at all.
     var acceptanceThreshold: Double = 0.55
 
+    /// Confidence required to jump anywhere in the script, well above the
+    /// ordinary bar: a re-sync can move the reader a long way, so it must be
+    /// near-certain before it fires.
+    var resyncThreshold: Double = 0.78
+    /// How far the best whole-script candidate must beat any distant rival.
+    /// Scripts repeat phrases ("thanks for coming in today"), and jumping to the
+    /// wrong copy is worse than not jumping at all.
+    var resyncMargin: Double = 0.12
+
+    /// Searches the whole script, for when the reader has moved outside the
+    /// local window entirely: skipping a section, answering out of order, or
+    /// starting again from the top. Without this the position can never be
+    /// recovered, because the windowed search can only ever look nearby.
+    func matchAnywhere(transcriptTokens: [String], scriptTokens: [String]) -> Match? {
+        guard !scriptTokens.isEmpty else { return nil }
+
+        let probe = Array(transcriptTokens.suffix(probeLength))
+        // A short probe is not distinctive enough to justify a long jump.
+        guard probe.count >= probeLength else { return nil }
+
+        var best: (index: Int, score: Double)?
+        var runnerUp: Double = 0
+
+        for end in scriptTokens.indices {
+            let score = alignmentScore(probe: probe, scriptTokens: scriptTokens, endingAt: end)
+            if score > (best?.score ?? 0) {
+                // The previous best becomes the rival, unless it overlaps the new
+                // one -- neighbouring positions score similarly and are not rivals.
+                if let previous = best, abs(previous.index - end) > probe.count {
+                    runnerUp = max(runnerUp, previous.score)
+                }
+                best = (end, score)
+            } else if let current = best, abs(current.index - end) > probe.count {
+                runnerUp = max(runnerUp, score)
+            }
+        }
+
+        guard let best, best.score >= resyncThreshold,
+              best.score - runnerUp >= resyncMargin else { return nil }
+        return Match(wordIndex: best.index, confidence: best.score)
+    }
+
     /// Finds the speaker's most likely position in `scriptTokens`.
     ///
     /// - Parameters:

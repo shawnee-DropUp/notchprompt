@@ -80,7 +80,55 @@ enum TranscriptAlignerSelfTests {
         assert(ScriptHints.extract(from: "").isEmpty, "Empty script yields no hints")
     }
 
+    /// Re-sync exists for jumping around a script — skipping ahead, taking
+    /// questions out of order — which the windowed search can never follow.
+    private static func assertResyncFindsDistantJump() {
+        // Far longer than the look-ahead window, so only a whole-script search
+        // can find the tail of it.
+        let filler = Array(repeating: "filler", count: 120).joined(separator: " ")
+        let script = "opening remarks about the quarterly numbers \(filler) "
+            + "now walk me through your proudest engineering achievement"
+        let tokens = script.split(separator: " ").map(String.init)
+        let aligner = TranscriptAligner()
+
+        let probe = ["through", "your", "proudest", "engineering", "achievement"]
+        let expected = tokens.count - 1
+
+        // The windowed search must fail from the start of the script...
+        assert(aligner.match(transcriptTokens: probe, scriptTokens: tokens, currentIndex: 0) == nil,
+               "Windowed search should not reach a jump beyond its look-ahead")
+        // ...and the whole-script search must find it.
+        let resync = aligner.matchAnywhere(transcriptTokens: probe, scriptTokens: tokens)
+        assert(resync?.wordIndex == expected,
+               "Re-sync should locate a distant jump, got \(String(describing: resync))")
+    }
+
+    /// Jumping to the wrong copy of a repeated line is worse than not jumping,
+    /// so an ambiguous match must be refused outright.
+    private static func assertResyncRefusesAmbiguity() {
+        let line = "thanks so much for coming in today"
+        let script = "\(line) and welcome along \(line) and welcome along"
+        let tokens = script.split(separator: " ").map(String.init)
+
+        let probe = ["much", "for", "coming", "in", "today"]
+        let resync = TranscriptAligner().matchAnywhere(transcriptTokens: probe, scriptTokens: tokens)
+        assert(resync == nil, "Duplicated phrasing must not produce a confident jump")
+    }
+
+    private static func assertResyncRejectsWeakEvidence() {
+        let tokens = "one two three four five six seven eight nine ten".split(separator: " ").map(String.init)
+        let aligner = TranscriptAligner()
+        assert(aligner.matchAnywhere(transcriptTokens: ["three", "four"], scriptTokens: tokens) == nil,
+               "A probe shorter than probeLength is too weak to justify a jump")
+        assert(aligner.matchAnywhere(transcriptTokens: ["banana", "helicopter", "purple", "monday", "asparagus"],
+                                     scriptTokens: tokens) == nil,
+               "Off-script speech must never trigger a jump")
+    }
+
     static func run() {
+        assertResyncFindsDistantJump()
+        assertResyncRefusesAmbiguity()
+        assertResyncRejectsWeakEvidence()
         assertScriptHints()
         assertExactTailMatches()
         assertToleratesMisrecognition()
