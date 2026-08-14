@@ -135,6 +135,8 @@ struct OverlayView: View {
                 voiceFollowEnabled: model.voiceFollowEnabled,
                 voiceTargetRelativeY: model.voiceTargetRelativeY,
                 voiceHighlightRange: model.voiceHighlightRange,
+                voiceLookAheadRelativeY: model.voiceLookAheadRelativeY,
+                voiceCurrentWordEndsLine: model.voiceCurrentWordEndsLine,
                 onSaveScrollPhaseForResume: { phase in
                     model.saveScrollPhaseForResume(phase)
                 },

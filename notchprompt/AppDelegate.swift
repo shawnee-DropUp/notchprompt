@@ -41,6 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 #if DEBUG
         ScreenSelectionSelfTests.run()
         TranscriptAlignerSelfTests.run()
+        TranscriptAlignerSelfTests.runLayoutChecks()
         runShortcutSelfChecks()
 #endif
 
@@ -88,7 +89,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] enabled in
-                self?.hotkeyManager.setTransportKeysEnabled(enabled)
+                self?.refreshTransportKeys()
+                _ = enabled
+            }
+            .store(in: &cancellables)
+
+        // Arrow keys are claimed globally, which would otherwise steal them from
+        // our own text fields: typing in the Settings script box could not move
+        // the caret, and the keystrokes landed on the prompter instead. Release
+        // them whenever a window of ours takes focus, reclaim them after.
+        NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.refreshTransportKeys()
+            }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                // Runs before the next window becomes key, so re-evaluate after.
+                DispatchQueue.main.async { self?.refreshTransportKeys() }
             }
             .store(in: &cancellables)
 
@@ -148,6 +169,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             self?.model.saveToDefaults()
         }
         .store(in: &cancellables)
+    }
+
+    /// Arrow capture is on except while one of our editing windows holds focus.
+    /// The overlay panel can itself become key, so testing for any key window is
+    /// too broad; only the Settings and script windows contain text fields.
+    private func refreshTransportKeys() {
+        let editors = [settingsWindowController?.window, scriptEditorWindowController?.window]
+        let editorFocused = editors.contains { $0?.isKeyWindow == true }
+        hotkeyManager.setTransportKeysEnabled(model.captureArrowKeys && !editorFocused)
     }
 
     private func setupEditMenu() {
@@ -333,6 +363,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 settingsWindowController = SettingsWindowController()
             }
             settingsWindowController?.show()
+            self.refreshTransportKeys()
         }
     }
 
@@ -342,6 +373,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 scriptEditorWindowController = ScriptEditorWindowController()
             }
             scriptEditorWindowController?.show()
+            self.refreshTransportKeys()
         }
     }
 

@@ -27,6 +27,8 @@ struct ScrollingTextView: View {
     let voiceFollowEnabled: Bool
     let voiceTargetRelativeY: CGFloat?
     let voiceHighlightRange: NSRange?
+    let voiceLookAheadRelativeY: CGFloat?
+    let voiceCurrentWordEndsLine: Bool
     let onSaveScrollPhaseForResume: ((CGFloat) -> Void)?
     let onReachedEnd: (() -> Void)?
     let onReportLayoutWidth: ((CGFloat) -> Void)?
@@ -370,7 +372,25 @@ struct ScrollingTextView: View {
 
         // Resolve the target inside whichever loop iteration the reader is in.
         let cycleBase = phase - phase.truncatingRemainder(dividingBy: cycleLength)
-        let targetPhase = cycleBase + (relativeY * contentHeight) - startAnchorOffset
+        let currentWordY = cycleBase + (relativeY * contentHeight)
+        var targetPhase = currentWordY - startAnchorOffset
+
+        // Reading only advances the scroll on words that get spoken, so text left
+        // below the fade can never be reached: unreadable means unspeakable means
+        // stuck. A paragraph break causes this, its blank line pushing the next
+        // line out of view while the word count barely moves.
+        //
+        // Only correct for it once the spoken word ends its line. Before that the
+        // reader is still working through the current line, and scrolling it away
+        // would pull the words out from under them.
+        if let voiceLookAheadRelativeY, voiceCurrentWordEndsLine {
+            let lookAheadY = cycleBase + (voiceLookAheadRelativeY * contentHeight)
+            let bottomReadableEdge = viewportHeight - (topFadeClearInset + readabilityPadding)
+            let lineHeight = fontSize * 1.3
+
+            // Enough scroll for the whole next line to clear the bottom fade.
+            targetPhase = max(targetPhase, lookAheadY + lineHeight - bottomReadableEdge)
+        }
 
         let error = targetPhase - phase
         guard abs(error) > voiceDeadband else { return 0 }

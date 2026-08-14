@@ -79,6 +79,13 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
     @Published private(set) var voiceTargetRelativeY: CGFloat?
     /// Character range of the word being spoken, for live highlighting.
     @Published private(set) var voiceHighlightRange: NSRange?
+    /// Position of the next line of text after the spoken word. The scroll keeps
+    /// this line readable, otherwise reading deadlocks: the view only advances on
+    /// words you speak, so text you cannot see is text you can never reach.
+    @Published private(set) var voiceLookAheadRelativeY: CGFloat?
+    /// True when the spoken word is the last one on its line. Only then is it
+    /// safe to scroll it away in favour of what comes next.
+    @Published private(set) var voiceCurrentWordEndsLine: Bool = false
 
     private let speechFollower = SpeechFollower()
     private let aligner = TranscriptAligner()
@@ -165,6 +172,8 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
         currentWordIndex = 0
         voiceTargetRelativeY = nil
         voiceHighlightRange = nil
+        voiceLookAheadRelativeY = nil
+        voiceCurrentWordEndsLine = false
         voiceIsTracking = false
         lastConfidentMatch = nil
         resetToken = UUID()
@@ -321,6 +330,8 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
             voiceIsTracking = false
             voiceTargetRelativeY = nil
             voiceHighlightRange = nil
+            voiceLookAheadRelativeY = nil
+            voiceCurrentWordEndsLine = false
             currentWordIndex = 0
             lastConfidentMatch = nil
 
@@ -406,6 +417,29 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
         voiceIsTracking = true
         voiceTargetRelativeY = scriptIndex.entries[match.wordIndex].relativeY
         voiceHighlightRange = scriptIndex.entries[match.wordIndex].range
+        voiceLookAheadRelativeY = Self.nextLineRelativeY(after: match.wordIndex, in: scriptIndex)
+        voiceCurrentWordEndsLine = Self.wordEndsLine(at: match.wordIndex, in: scriptIndex)
+    }
+
+    /// Vertical position of the first word that sits on a later line than the
+    /// word at `index`. Across a paragraph break this is the next paragraph's
+    /// opening line, which is exactly the text that would otherwise be stranded
+    /// below the fade. Returns nil on the final line.
+    static func nextLineRelativeY(after index: Int, in scriptIndex: ScriptIndex) -> CGFloat? {
+        guard scriptIndex.entries.indices.contains(index) else { return nil }
+        let currentY = scriptIndex.entries[index].relativeY
+        let next = index + 1
+        guard next < scriptIndex.entries.count else { return nil }
+
+        // Fractions of total height, so the epsilon guards float noise only.
+        return scriptIndex.entries[next...].first { $0.relativeY > currentY + 0.0001 }?.relativeY
+    }
+
+    /// Whether the next word starts a new line, meaning this word closes one.
+    static func wordEndsLine(at index: Int, in scriptIndex: ScriptIndex) -> Bool {
+        let entries = scriptIndex.entries
+        guard entries.indices.contains(index), index + 1 < entries.count else { return false }
+        return entries[index + 1].relativeY > entries[index].relativeY + 0.0001
     }
 
     private func expireTrackingIfStale() {
