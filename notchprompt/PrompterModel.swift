@@ -63,7 +63,7 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
     /// 0 means "auto" (prefer built-in display)
     @Published var selectedScreenID: CGDirectDisplayID = 0
     /// Bare arrow keys drive speed and reset globally. This takes the arrow keys
-    /// away from every other app while Notchprompt runs, so it must be escapable.
+    /// away from every other app while the prompter runs, so it must be escapable.
     @Published var captureArrowKeys: Bool = true
     // Fraction of the viewport height to fade at top and bottom.
     let edgeFadeFraction: Double = 0.20

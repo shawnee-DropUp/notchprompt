@@ -241,7 +241,7 @@ private extension OverlayWindowController {
         let actualName = actualScreen?.localizedName ?? "nil"
         let actualFrame = actualScreen?.frame.debugDescription ?? "nil"
         let actualVisible = actualScreen?.visibleFrame.debugDescription ?? "nil"
-        print("[Notchprompt][Overlay] reason=\(reason)")
+        print("[CollinsTeleprompter][Overlay] reason=\(reason)")
         print("level=\(String(describing: level))(raw=\(level.rawValue)) ignoresMouseEvents=\(panel.ignoresMouseEvents)")
         print("panel.frame=\(panelFrame.debugDescription) panel.maxY=\(panelMaxY)")
         print("screen(name=\(intendedName), frame=\(intendedFrame), visible=\(intendedVisible), reservedTop=\(reservedTop))")

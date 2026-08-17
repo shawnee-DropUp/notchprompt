@@ -20,7 +20,7 @@ final class SettingsWindowController: NSWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = "Notchprompt Settings"
+        window.title = "Collins Teleprompter Settings"
         window.contentViewController = hosting
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 620, height: 460)

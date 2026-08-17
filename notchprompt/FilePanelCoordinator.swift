@@ -17,7 +17,7 @@ enum FilePanelCoordinator {
         panel.allowsMultipleSelection = false
         panel.allowsOtherFileTypes = true
         panel.prompt = "Import"
-        panel.message = "Choose a script file. Notchprompt will try to extract text from common document formats."
+        panel.message = "Choose a script file. Collins Teleprompter will try to extract text from common document formats."
         return await present(panel: panel, from: window)
     }
 

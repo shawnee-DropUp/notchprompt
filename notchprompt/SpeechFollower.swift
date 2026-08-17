@@ -83,7 +83,7 @@ final class SpeechFollower: ObservableObject {
         // Privacy Mode is a headline feature of this app; never stream audio to
         // Apple's servers as a silent fallback.
         guard recognizer.supportsOnDeviceRecognition else {
-            status = .unavailable("On-device speech recognition isn't installed for this language, and Notchprompt won't send your audio off the device. Add the language in System Settings › Keyboard › Dictation.")
+            status = .unavailable("On-device speech recognition isn't installed for this language, and Collins Teleprompter won't send your audio off the device. Add the language in System Settings › Keyboard › Dictation.")
             return
         }
         self.recognizer = recognizer

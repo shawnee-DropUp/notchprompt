@@ -238,7 +238,7 @@ struct OverlayView: View {
                         OverlayControlButton(symbol: "xmark") {
                             NSApp.terminate(nil)
                         }
-                        .help("Quit Notchprompt")
+                        .help("Quit Collins Teleprompter")
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)

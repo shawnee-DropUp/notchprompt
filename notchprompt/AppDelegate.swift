@@ -145,7 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
 #if DEBUG
-                print("[Notchprompt] didChangeScreenParametersNotification")
+                print("[CollinsTeleprompter] didChangeScreenParametersNotification")
 #endif
                 self?.overlayController?.reposition()
             }
@@ -204,8 +204,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func setupStatusBar() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.title = "NP"
-        item.button?.toolTip = "Notchprompt"
+        item.button?.title = "CT"
+        item.button?.toolTip = "Collins Teleprompter"
 
         let menu = NSMenu()
 
@@ -293,7 +293,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         menu.addItem(.separator())
 
-        let quit = NSMenuItem(title: "Quit Notchprompt", action: #selector(quitApp), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "Quit Collins Teleprompter", action: #selector(quitApp), keyEquivalent: "q")
         quit.target = self
         quit.keyEquivalentModifierMask = [.command]
         menu.addItem(quit)

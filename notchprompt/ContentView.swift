@@ -16,6 +16,10 @@ struct ContentView: View {
     private let valueWidth: CGFloat = 56
 
     @State private var fileErrorMessage: String?
+    /// Whether the caret is actually in the script box. A TextEditor bound to a
+    /// computed binding can emit an empty value while the view is being set up,
+    /// and writing that through would silently destroy the script.
+    @FocusState private var scriptFieldFocused: Bool
 
     var body: some View {
         ScrollView {
@@ -55,8 +59,15 @@ struct ContentView: View {
 
                 TextEditor(text: Binding(
                     get: { model.script },
-                    set: { model.updateScript($0) }
+                    set: { newValue in
+                        // Only a person with the caret in this box may empty it.
+                        // Anything else emptying it is the framework talking, not
+                        // the user, and losing a script that way is unacceptable.
+                        guard !newValue.isEmpty || scriptFieldFocused else { return }
+                        model.updateScript(newValue)
+                    }
                 ))
+                .focused($scriptFieldFocused)
                 .font(.system(size: 13, design: .monospaced))
                 .frame(minHeight: 260)
                 .scrollContentBackground(.hidden)
@@ -236,7 +247,7 @@ struct ContentView: View {
         SettingsSection(title: "Keyboard Shortcuts") {
             VStack(alignment: .leading, spacing: 6) {
                 Toggle("Use arrow keys for speed and reset", isOn: $model.captureArrowKeys)
-                Text("While on, Notchprompt claims the plain arrow keys system-wide — "
+                Text("While on, Collins Teleprompter claims the plain arrow keys system-wide — "
                      + "they will not work in other apps until you turn this off or quit.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
