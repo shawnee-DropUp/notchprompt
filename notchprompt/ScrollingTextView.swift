@@ -31,6 +31,7 @@ struct ScrollingTextView: View {
     let voiceCurrentWordEndsLine: Bool
     let voiceLastMatchAt: Date?
     let voiceRecoveryPace: CGFloat?
+    let voiceJumpToken: UUID?
     let onSaveScrollPhaseForResume: ((CGFloat) -> Void)?
     let onReachedEnd: (() -> Void)?
     let onReportLayoutWidth: ((CGFloat) -> Void)?
@@ -51,6 +52,9 @@ struct ScrollingTextView: View {
     /// Cached so the highlight is rebuilt only when the spoken word changes,
     /// never on the 60fps scroll tick.
     @State private var attributedScript = AttributedString()
+    /// Set when the position jumped elsewhere in the script; the next tick seeks
+    /// straight there instead of scrolling through everything in between.
+    @State private var pendingVoiceJump = false
 
     // Smooth deceleration/acceleration rate (0-1, higher = faster)
     private let speedLerpFactor: Double = 8.0
@@ -188,6 +192,10 @@ struct ScrollingTextView: View {
                 }
                 .onChange(of: voiceHighlightRange) { _, _ in
                     rebuildAttributedScript()
+                }
+                .onChange(of: voiceJumpToken) { _, newValue in
+                    guard newValue != nil else { return }
+                    pendingVoiceJump = true
                 }
                 .onChange(of: viewportProxy.size.height) { _, newHeight in
                     viewportHeight = max(newHeight, 0)
@@ -447,6 +455,17 @@ struct ScrollingTextView: View {
         }
 
         self.lastTickDate = date
+
+        // A jump means the reader is somewhere else entirely, so glide is wrong:
+        // it would scroll for seconds through text nobody is looking at.
+        if pendingVoiceJump, voiceFollowEnabled, hasMeasuredContentHeight,
+           let relativeY = voiceTargetRelativeY {
+            let cycleBase = phase - phase.truncatingRemainder(dividingBy: cycleLength)
+            phase = cycleBase + (relativeY * contentHeight) - startAnchorOffset
+            pendingVoiceJump = false
+            deferredStopTargetPhase = nil
+            hasReachedEndInStopMode = false
+        }
 
         // Integrate in short fixed steps to avoid jitter/jumps at very slow/fast speeds.
         var remaining = totalDt

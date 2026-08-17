@@ -92,6 +92,9 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
     /// Measured reading pace in relative-height units per second, used to keep
     /// creeping forward while off-script instead of stalling outright.
     @Published private(set) var voiceRecoveryPace: CGFloat?
+    /// Changes when the position moves by a whole-script jump rather than by
+    /// reading onward, telling the view to seek instead of glide.
+    @Published private(set) var voiceJumpToken: UUID?
 
     private let speechFollower = SpeechFollower()
     private let aligner = TranscriptAligner()
@@ -111,9 +114,12 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
     private static let trackingTimeout: TimeInterval = 2.5
     /// Ceiling on inferred pace, as a fraction of the script per second.
     private static let maximumRecoveryPace: CGFloat = 0.05
-    /// Quiet period after which the local window is presumed wrong and the whole
-    /// script is searched. Long enough that ordinary pauses do not trigger it.
-    private static let resyncDelay: TimeInterval = 5.0
+    /// How long the local window must come up empty before the whole script is
+    /// searched. Navigation is by voice alone, so this is the delay between
+    /// speaking a different section and being found -- kept short. Not zero:
+    /// immediately after a jump the transcript tail still holds the previous
+    /// words, and searching on those would just match where you already were.
+    private static let resyncDelay: TimeInterval = 1.2
 
     /// Signals AppDelegate to open Settings. Routed through the model because
     /// SwiftUI's delegate adaptor wraps AppDelegate in its own class, so views
@@ -191,6 +197,7 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
         lastConfidentMatch = nil
         voiceLastMatchAt = nil
         voiceRecoveryPace = nil
+        voiceJumpToken = nil
         paceSamples.removeAll()
         resetToken = UUID()
     }
@@ -352,6 +359,7 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
             lastConfidentMatch = nil
             voiceLastMatchAt = nil
             voiceRecoveryPace = nil
+            voiceJumpToken = nil
             paceSamples.removeAll()
 
             // Voice follow is its own transport: no countdown, and the timed
@@ -488,6 +496,9 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
         // A re-sync is deliberately allowed to move backwards; restarting from
         // the top is one of the cases this exists to handle.
         apply(matchAt: resync.wordIndex)
+        // Gliding across a jump would scroll for seconds through text nobody is
+        // reading. Tell the view to go straight there.
+        voiceJumpToken = UUID()
     }
 
     private func apply(matchAt index: Int) {

@@ -139,6 +139,7 @@ struct OverlayView: View {
                 voiceCurrentWordEndsLine: model.voiceCurrentWordEndsLine,
                 voiceLastMatchAt: model.voiceLastMatchAt,
                 voiceRecoveryPace: model.voiceRecoveryPace,
+                voiceJumpToken: model.voiceJumpToken,
                 onSaveScrollPhaseForResume: { phase in
                     model.saveScrollPhaseForResume(phase)
                 },
